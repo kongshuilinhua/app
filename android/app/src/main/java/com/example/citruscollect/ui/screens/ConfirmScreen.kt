@@ -148,6 +148,11 @@ fun ConfirmScreen(sampleId: String, onBack: () -> Unit, onSaved: () -> Unit, onR
             Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall
         )
 
+        if (editable && formLoaded && sample?.uploadState == "draft") {
+            Text("待确认：请核对品种、部位和类别，确认后保存。", color = CitrusColors.Green,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp))
+        }
+
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(enabled = editable && !busy, onClick = { recognizeId = image.imageId }) {
                 Text(if (image.recognitionJson != null) "识别结果" else "识别此图")

@@ -35,6 +35,8 @@ interface SessionStore {
 
     suspend fun saveTokens(accessToken: String, refreshToken: String, expiresIn: Int)
     suspend fun clear()
+    suspend fun loadProfileCache(key: String): String? = null
+    suspend fun saveProfileCache(key: String, value: String) { }
     suspend fun loadBootstrapCache(key: String): String? = null
     suspend fun saveBootstrapCache(key: String, value: String) { }
 }
@@ -42,6 +44,13 @@ interface SessionStore {
 private val Context.dataStore by preferencesDataStore(name = "session")
 
 class DataStoreSessionStore(private val context: Context) : SessionStore {
+    override suspend fun loadProfileCache(key: String): String? {
+        val data = context.dataStore.data.first()
+        return data[KEY_PROFILE_VALUE]?.takeIf { data[KEY_PROFILE_ID] == key }
+    }
+    override suspend fun saveProfileCache(key: String, value: String) {
+        context.dataStore.edit { it[KEY_PROFILE_ID] = key; it[KEY_PROFILE_VALUE] = value }
+    }
     override suspend fun loadBootstrapCache(key: String): String? {
         val data = context.dataStore.data.first()
         return data[KEY_BOOTSTRAP_VALUE]?.takeIf { data[KEY_BOOTSTRAP_ID] == key }
@@ -116,6 +125,8 @@ class DataStoreSessionStore(private val context: Context) : SessionStore {
     }
 
     companion object {
+        private val KEY_PROFILE_ID = stringPreferencesKey("profile_cache_id")
+        private val KEY_PROFILE_VALUE = stringPreferencesKey("profile_cache_value")
         private val KEY_BOOTSTRAP_ID = stringPreferencesKey("bootstrap_cache_id")
         private val KEY_BOOTSTRAP_VALUE = stringPreferencesKey("bootstrap_cache_value")
         private val KEY_BASE_URL = stringPreferencesKey("base_url")

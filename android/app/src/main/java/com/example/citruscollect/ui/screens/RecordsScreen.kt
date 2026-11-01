@@ -50,6 +50,7 @@ import com.example.citruscollect.data.entity.ImageEntity
 import com.example.citruscollect.data.entity.SampleEntity
 import com.example.citruscollect.ui.LocalAppContainer
 import com.example.citruscollect.ui.theme.CitrusColors
+import com.example.citruscollect.util.CollectionReadiness
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -76,7 +77,7 @@ fun RecordsScreen(
     onOpenRecord: (String) -> Unit,
     onCapture: () -> Unit,
     onOpenBatches: () -> Unit,
-    onLogout: () -> Unit
+    onAccount: () -> Unit
 ) {
     val container = LocalAppContainer.current
     val repository = container.repository
@@ -97,12 +98,14 @@ fun RecordsScreen(
     var tab by rememberSaveable { mutableStateOf("pending") }
     val list = if (tab == "pending") pendingList else uploadedList
 
+    var resolvedPhotos by remember { mutableStateOf(emptySet<String>()) }
     var photos by remember { mutableStateOf<Map<String, ImageEntity>>(emptyMap()) }
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(inBatch.map { it.sampleId }, tick) {
         photos = inBatch.mapNotNull { sample ->
             repository.imagesOf(sample.sampleId).first().firstOrNull()?.let { sample.sampleId to it }
         }.toMap()
+        resolvedPhotos = inBatch.map { it.sampleId }.toSet()
     }
 
     var cultivarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -140,7 +143,7 @@ fun RecordsScreen(
                                 modifier = Modifier.padding(top = 3.dp))
                         }
                         RoundTag("本地记录")
-                        TextButton(onClick = onLogout) { Text("退出", fontSize = 12.sp, color = CitrusColors.Muted) }
+                        TextButton(onClick = onAccount) { Text("我的", fontSize = 12.sp, color = CitrusColors.Muted) }
                     }
                     BatchStrip(batch = batch, count = inBatch.size, onClick = onOpenBatches)
                     Row(
@@ -204,9 +207,14 @@ fun RecordsScreen(
                 RecordCard(
                     sample = sample,
                     image = image,
-                    cultivar = cultivarNames[sample.cultivarId].orEmpty(),
+                    photoResolved = sample.sampleId in resolvedPhotos,
+                    cultivar = cultivarNames[sample.cultivarId] ?: when {
+                        sample.cultivarId == "unknown" -> "不确定"
+                        sample.cultivarId.isBlank() -> "品种未填写"
+                        else -> "品种已选择"
+                    },
                     className = classNames[sample.classId]
-                        ?: if (sample.classId == UNKNOWN_CLASS) "不确定" else "类别待填写",
+                        ?: when { sample.classId == UNKNOWN_CLASS -> "不确定"; sample.classId.isBlank() -> "类别未填写"; else -> "类别已选择" },
                     viewName = VIEW_NAMES[image?.viewType] ?: "近景",
                     selecting = selecting,
                     selected = sample.sampleId in selected,
@@ -447,6 +455,7 @@ private fun Segmented(options: List<Pair<String, String>>, selected: String, onS
 private fun RecordCard(
     sample: SampleEntity,
     image: ImageEntity?,
+    photoResolved: Boolean,
     cultivar: String,
     className: String,
     viewName: String,
@@ -460,6 +469,8 @@ private fun RecordCard(
     onWithdraw: () -> Unit
 ) {
     val uploaded = sample.uploadState == "uploaded"
+    val readiness = CollectionReadiness.status(sample.uploadState, sample.cultivarId, sample.part, sample.classId,
+        if (photoResolved) image != null else null)
     Surface(
         color = CitrusColors.White,
         shape = RoundedCornerShape(13.dp),
@@ -476,7 +487,7 @@ private fun RecordCard(
                 } else {
                     Box(Modifier.fillMaxSize().background(Color(0xFFDCE5CC)))
                 }
-                StatusBadge(sample.uploadState)
+                StatusBadge(sample.uploadState, readiness)
                 if (selecting && !uploaded) {
                     Box(
                         Modifier.align(Alignment.TopEnd).padding(8.dp).size(22.dp)
@@ -502,6 +513,7 @@ private fun RecordCard(
                     fontSize = 10.sp, color = Color(0xFF949C89), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                readiness.detail?.let { Text(it, fontSize = 10.sp, color = if (readiness.incomplete) CitrusColors.Orange else CitrusColors.Muted, maxLines = 2, modifier = Modifier.padding(top = 5.dp)) }
                 sample.uploadError?.let { Text(it, fontSize = 10.sp, color = Color(0xFFB05F4B), maxLines = 3) }
                 if (uploaded) sample.reviewJson?.let {
                     Text(reviewSummary(it), fontSize = 10.sp, color = CitrusColors.Green, maxLines = 2)
@@ -517,7 +529,7 @@ private fun RecordCard(
                     if (uploaded) {
                         CardAction("撤回", Color(0xFF98A08F), onWithdraw)
                     } else {
-                        CardAction(if (sample.uploadState in setOf("queued", "uploading", "retrying")) "已入队" else if (busy) "入队中" else if (sample.uploadState == "failed") "重试 ↑" else "上传 ↑", CitrusColors.Green, onUpload, enabled = !busy && sample.uploadState !in setOf("queued", "uploading", "retrying"))
+                        CardAction(if (sample.uploadState in setOf("queued", "uploading", "retrying")) "已入队" else if (busy) "入队中" else if (sample.uploadState == "failed") "重试 ↑" else if (readiness.needsConfirmation) { if (readiness.incomplete) "去完善" else "去确认" } else "上传 ↑", CitrusColors.Green, if (readiness.needsConfirmation) onOpen else onUpload, enabled = !busy && sample.uploadState !in setOf("queued", "uploading", "retrying"))
                     }
                 }
             }
@@ -534,18 +546,19 @@ private fun CardAction(text: String, color: Color, onClick: () -> Unit, enabled:
 }
 
 @Composable
-private fun StatusBadge(state: String) {
-    val label: String
+private fun StatusBadge(state: String, readiness: CollectionReadiness.Status) {
+    val label = readiness.label
     val background: Color
     val foreground: Color
-    when (state) {
-        "uploaded" -> { label = "已上传"; background = Color(0xEEE8F3E9); foreground = Color(0xFF376748) }
-        "draft" -> { label = "待完善"; background = Color(0xEEFFF4E7); foreground = Color(0xFFAD6530) }
-        "queued", "retrying" -> { label = "等待后台上传"; background = Color(0xEEEDF2E9); foreground = Color(0xFF4F6B52) }
-        "uploading" -> { label = "上传中"; background = Color(0xEEEDF2E9); foreground = Color(0xFF4F6B52) }
-        "needs_photos" -> { label = "需补拍"; background = Color(0xEEFFF0EB); foreground = Color(0xFFB05F4B) }
-        "failed" -> { label = "上传失败"; background = Color(0xEEFFF0EB); foreground = Color(0xFFB05F4B) }
-        else -> { label = "待上传"; background = Color(0xEEFFF4E7); foreground = Color(0xFFAD6530) }
+    when {
+        readiness.incomplete -> { background = Color(0xEEFFF4E7); foreground = Color(0xFFAD6530) }
+        state == "uploaded" -> { background = Color(0xEEE8F3E9); foreground = Color(0xFF376748) }
+        state == "draft" -> { background = Color(0xEEEDF2E9); foreground = Color(0xFF4F6B52) }
+        state in setOf("queued", "retrying") -> { background = Color(0xEEEDF2E9); foreground = Color(0xFF4F6B52) }
+        state == "uploading" -> { background = Color(0xEEEDF2E9); foreground = Color(0xFF4F6B52) }
+        state == "needs_photos" -> { background = Color(0xEEFFF0EB); foreground = Color(0xFFB05F4B) }
+        state == "failed" -> { background = Color(0xEEFFF0EB); foreground = Color(0xFFB05F4B) }
+        else -> { background = Color(0xEEFFF4E7); foreground = Color(0xFFAD6530) }
     }
     Surface(color = background, shape = RoundedCornerShape(5.dp), modifier = Modifier.padding(8.dp)) {
         Text(label, fontSize = 9.sp, color = foreground, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))

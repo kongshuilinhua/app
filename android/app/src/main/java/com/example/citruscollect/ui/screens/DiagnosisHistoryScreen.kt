@@ -13,21 +13,14 @@ import com.example.citruscollect.ui.LocalAppContainer
 import com.example.citruscollect.ui.theme.CitrusColors
 
 @Composable
-fun DiagnosisHistoryScreen(onOpen: (String) -> Unit, onIdentify: () -> Unit, onQuestions: () -> Unit, onLogout: () -> Unit) {
+fun DiagnosisHistoryScreen(onOpen: (String) -> Unit, onIdentify: () -> Unit) {
     val container = LocalAppContainer.current
     val rows by container.diagnosisRepository.observeAll().collectAsState(initial = emptyList())
-    val username by container.authRepository.username.collectAsState(initial = null)
     var followOnly by remember { mutableStateOf(false) }
-    var logout by remember { mutableStateOf(false) }
     val visible = if (followOnly) rows.filter { it.followUpDate != null } else rows
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(vertical = 20.dp)) {
         item {
-            ScreenTitle("我的记录", "识别报告、后续观察和现场咨询。")
-            Text("当前账号：${username.orEmpty()}", color = CitrusColors.Muted, modifier = Modifier.padding(top = 10.dp))
-            Row {
-                TextButton(onClick = onQuestions) { Text("专家咨询") }
-                TextButton(onClick = { logout = true }) { Text("退出登录") }
-            }
+            ScreenTitle("我的记录", "识别报告与后续观察。")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilterChip(selected = !followOnly, onClick = { followOnly = false }, label = { Text("识别记录 ${rows.size}") })
                 FilterChip(selected = followOnly, onClick = { followOnly = true }, label = { Text("后续观察 ${rows.count { it.followUpDate != null }}") })
@@ -53,6 +46,4 @@ fun DiagnosisHistoryScreen(onOpen: (String) -> Unit, onIdentify: () -> Unit, onQ
         }
         item { Text("记录按账号和服务器分别保存。清除应用数据会移除本地记录。", style = MaterialTheme.typography.bodySmall, color = CitrusColors.Muted) }
     }
-    if (logout) AlertDialog(onDismissRequest = { logout = false }, title = { Text("退出当前账号？") }, text = { Text("本地图片与记录会保留。重新登录相同账号可继续查看。") },
-        confirmButton = { TextButton(onClick = { logout = false; onLogout() }) { Text("退出登录") } }, dismissButton = { TextButton(onClick = { logout = false }) { Text("取消") } })
 }

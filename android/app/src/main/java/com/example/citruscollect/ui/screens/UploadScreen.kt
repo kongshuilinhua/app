@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.citruscollect.util.CollectionReadiness
 import com.example.citruscollect.ui.LocalAppContainer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -71,19 +72,13 @@ fun UploadScreen(onBack: () -> Unit, onOpenDraft: (String) -> Unit,
                 val editable = s.uploadId == null && s.uploadState in setOf("draft", "pending", "failed", "needs_photos")
                 OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-                        val status = when (s.uploadState) {
-                            "draft" -> "草稿"
-                            "pending" -> "待上传"
-                            "uploading" -> "上传中"
-                            "failed" -> "上传失败"
-                            "needs_photos" -> "待补拍"
-                            "uploaded" -> "已上传"
-                            else -> s.uploadState
-                        }
+                        val readiness = CollectionReadiness.status(s.uploadState, s.cultivarId, s.part, s.classId)
+                        val status = readiness.label
                         Text("记录 ${s.sampleId.takeLast(8)} · $status", Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.titleSmall)
                         Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(s.createdAt)),
                             Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                        readiness.detail?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall) }
                         s.uploadError?.let {
                             Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
@@ -130,7 +125,7 @@ fun UploadScreen(onBack: () -> Unit, onOpenDraft: (String) -> Unit,
                                 }
                             ) {
                                 Text(if (s.uploadState == "uploaded") "撤回" else if (uploadingId == s.sampleId) "上传中…" else if (images.isEmpty() && editable) "去拍照"
-                                    else if (s.uploadState == "draft") "继续完善" else "上传")
+                                    else if (s.uploadState == "draft") { if (readiness.incomplete) "完善信息" else "确认信息" } else "上传")
                             }
                         }
                     }

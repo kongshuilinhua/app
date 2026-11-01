@@ -81,6 +81,8 @@ class Store:
     samples: dict[str, dict[str, Any]] = field(default_factory=dict)
     batches: dict[str, dict[str, Any]] = field(default_factory=dict)
     questions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    phone_identities: dict[str, dict[str, Any]] = field(default_factory=dict)
+    sms_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     # 原图字节不进入元数据存储，保留字段仅供内存模式与文件模块过渡使用。
     image_bytes: dict[str, bytes] = field(default_factory=dict)
     exports: dict[str, dict[str, Any]] = field(default_factory=dict)

@@ -5,6 +5,12 @@ import com.example.citruscollect.network.ApiException
 import com.example.citruscollect.network.AuthExpiredException
 import com.example.citruscollect.network.Backend
 import com.example.citruscollect.network.BootstrapResponse
+import com.example.citruscollect.network.ProfileResponse
+import com.example.citruscollect.network.ProfilePatch
+import com.example.citruscollect.network.PhoneCodeRequest
+import com.example.citruscollect.network.PhoneCodeResponse
+import com.example.citruscollect.network.PhoneLoginRequest
+import com.example.citruscollect.network.LoginResponse
 import com.example.citruscollect.network.LoginRequest
 import com.example.citruscollect.network.RefreshRequest
 import kotlinx.coroutines.CancellationException
@@ -62,6 +68,7 @@ class AuthRepository(
     }
 
     private val stateMutex = Mutex()
+    private val profileMutex = Mutex()
     private var epoch = 0L
     private var loginSequence = 0L
     private var restoreDone = false
@@ -92,11 +99,24 @@ class AuthRepository(
      * 登录：用指定地址的服务快照发起请求（不改全局地址，失败不会留下旧令牌配
      * 新主机的状态）；成功且仍属于当前代际时才一并提交地址与会话。
      */
-    suspend fun login(baseUrl: String, username: String, password: String) {
+    suspend fun login(baseUrl: String, username: String, password: String) =
+        loginUsing(baseUrl) { it.auth.login(LoginRequest(username, password)) }
+
+    suspend fun sendPhoneCode(baseUrl: String, phone: String): PhoneCodeResponse = try {
+        backend.servicesFor(baseUrl).auth.sendPhoneCode(PhoneCodeRequest(phone.trim()))
+    } catch (e: HttpException) {
+        val error = ApiErrors.parse(e)
+        throw ApiException(e.code(), error?.code, error?.message ?: "验证码发送失败", error?.request_id)
+    }
+
+    suspend fun loginPhone(baseUrl: String, phone: String, challenge: String, code: String) =
+        loginUsing(baseUrl) { it.auth.loginPhone(PhoneLoginRequest(phone.trim(), challenge, code)) }
+
+    private suspend fun loginUsing(baseUrl: String, action: suspend (Backend.Services) -> LoginResponse) {
         val services = backend.servicesFor(baseUrl)
         val (myEpoch, operation) = stateMutex.withLock { epoch to ++loginSequence }
         val response = try {
-            services.auth.login(LoginRequest(username, password))
+            action(services)
         } catch (e: CancellationException) {
             throw e
         } catch (e: HttpException) {
@@ -163,6 +183,53 @@ class AuthRepository(
             }
             is RefreshOutcome.Temporary -> false
         }
+    }
+
+    private suspend fun profileIdentity(): Pair<Long, String> = stateMutex.withLock {
+        val url = session.baseUrlValue() ?: throw AuthExpiredException("请先登录")
+        val name = session.username.first() ?: throw AuthExpiredException("请先登录")
+        if (session.accessToken() == null) throw AuthExpiredException("请先登录")
+        epoch to accountKey(url, name)
+    }
+
+    suspend fun cachedProfile(): ProfileResponse? {
+        val (generation, owner) = profileIdentity()
+        val value = session.loadProfileCache(owner) ?: return null
+        val result = runCatching { CitrusJson.json.decodeFromString<ProfileResponse>(value) }.getOrNull()
+        return if (generation == currentEpoch()) result else null
+    }
+
+    suspend fun profile(): ProfileResponse = profileMutex.withLock { loadProfile() }
+
+    private suspend fun loadProfile(): ProfileResponse {
+        restorePersistedBaseUrl()
+        val (generation, owner) = profileIdentity()
+        val loaded = authorizedServices(expectedOwner = owner) { services, token -> services.auth.profile("Bearer $token") }
+        stateMutex.withLock {
+            if (generation != epoch) throw AuthExpiredException("会话已切换，请重新操作")
+            session.saveProfileCache(owner, CitrusJson.json.encodeToString(loaded))
+        }
+        return loaded
+    }
+
+    suspend fun updateNickname(nickname: String): ProfileResponse = profileMutex.withLock { saveNickname(nickname) }
+
+    private suspend fun saveNickname(nickname: String): ProfileResponse {
+        restorePersistedBaseUrl()
+        val (generation, owner) = profileIdentity()
+        val loaded = try {
+            authorizedServices(expectedOwner = owner) { services, token ->
+                services.auth.updateProfile("Bearer $token", ProfilePatch(nickname.trim()))
+            }
+        } catch (e: HttpException) {
+            val error = ApiErrors.parse(e)
+            throw ApiException(e.code(), error?.code, error?.message ?: "昵称保存失败", error?.request_id)
+        }
+        stateMutex.withLock {
+            if (generation != epoch) throw AuthExpiredException("会话已切换，请重新操作")
+            session.saveProfileCache(owner, CitrusJson.json.encodeToString(loaded))
+        }
+        return loaded
     }
 
     suspend fun bootstrap(forceRefresh: Boolean = false): BootstrapResponse {

@@ -15,6 +15,7 @@ import com.example.citruscollect.network.UploadImage
 import com.example.citruscollect.network.UploadOrchestrator
 import com.example.citruscollect.network.UploadOutcome
 import com.example.citruscollect.network.UploadRequestData
+import com.example.citruscollect.util.CollectionReadiness
 import com.example.citruscollect.util.UuidV7
 import com.example.citruscollect.util.formatCapturedAt
 import com.example.citruscollect.util.sha256Streaming
@@ -347,6 +348,8 @@ class SampleRepository(
         note: String
     ) = uploadMutex.withLock {
         requireEditable(sampleId)
+        val missing = CollectionReadiness.missingFields(cultivarId, part, classId, imageDao.bySampleList(sampleId).isNotEmpty())
+        if (missing.isNotEmpty()) throw UploadException("缺少：${missing.joinToString("、")}，请补充后保存")
         sampleDao.byId(sampleId)?.let {
             sampleDao.update(
                 it.copy(
@@ -435,6 +438,8 @@ class SampleRepository(
     suspend fun enqueueUpload(sampleId: String) {
         val sample = ownedSample(sampleId)
         if (sample.uploadState !in setOf("pending", "failed", "queued", "retrying", "uploading")) throw UploadException("请先确认采集信息")
+        val missing = CollectionReadiness.missingFields(sample.cultivarId, sample.part, sample.classId, imageDao.bySampleList(sampleId).isNotEmpty())
+        if (missing.isNotEmpty()) throw UploadException("缺少：${missing.joinToString("、")}，请补充并确认信息")
         val schedule = uploadScheduler ?: throw UploadException("后台上传尚未初始化")
         if (sample.uploadState !in setOf("queued", "retrying", "uploading")) sampleDao.update(sample.copy(uploadState = "queued", uploadError = null))
         schedule(sampleId, sample.ownerKey!!)

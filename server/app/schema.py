@@ -5,10 +5,11 @@ from sqlalchemy import (JSON, BigInteger, Boolean, Column, DateTime, Float, Fore
                         Integer, MetaData, String, Table, Text, UniqueConstraint)
 from sqlalchemy.dialects.mysql import DATETIME, VARCHAR
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "5"
 ENTITY_ORDER = ("users", "cultivars", "classes", "config", "batches", "uploads", "samples", "images",
-                "sessions", "exports", "export_items", "idempotency", "questions")
+                "sessions", "exports", "export_items", "idempotency", "questions", "phone_identities", "sms_states")
 PRIMARY_KEYS = {
+    "phone_identities": ("phone_key",), "sms_states": ("record_key",),
     "batches": ("batch_id",), "questions": ("question_id",),
     "users": ("user_id",), "sessions": ("token_hash",), "cultivars": ("cultivar_id",),
     "classes": ("class_id",), "config": ("config_key",), "uploads": ("upload_id",),
@@ -37,6 +38,9 @@ def build_schema():
           col("username", username, unique=True), col("display_name", String(64)),
           col("role", String(16)), col("is_active", Boolean), col("password_hash", String(255)),
           col("created_at", timestamp), col("last_login_at", timestamp, nullable=True))
+    table("phone_identities", col("phone_key", String(64), primary_key=True),
+          ref("user_id", "users.user_id", unique=True), col("masked_phone", String(16), nullable=True))
+    table("sms_states", col("record_key", String(64), primary_key=True), col("data", JSON))
     table("cultivars", col("cultivar_id", String(64), primary_key=True), col("name", String(128)),
           col("is_active", Boolean), col("version", Integer))
     table("classes", col("class_id", String(128), primary_key=True), col("name", String(128)),

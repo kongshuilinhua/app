@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/diagnoses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Diagnose */
+        post: operations["diagnose_api_v1_diagnoses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagnoses/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Advice */
+        post: operations["retry_advice_api_v1_diagnoses_advice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/recognitions": {
         parameters: {
             query?: never;
@@ -76,6 +110,64 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/auth/phone/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 发送手机登录验证码
+         * @description 每手机号60秒重发，验证码5分钟有效。发送有全局、IP和手机号配额。
+         */
+        post: operations["sendPhoneCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/phone/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 手机验证码登录，首次验证后自动创建账号
+         * @description 首次验证成功创建collector，再次登录使用同一用户ID。验证码一次性，最多5次尝试。
+         */
+        post: operations["phoneLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 当前用户个人资料 */
+        get: operations["getMyProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 修改当前用户昵称 */
+        patch: operations["patchMyProfile"];
         trace?: never;
     };
     "/auth/login": {
@@ -858,6 +950,83 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Action */
+        Action: {
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+        };
+        /** Advice */
+        Advice: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "uncertain" | "healthy" | "unmapped" | "conflict" | "unavailable";
+            /** Title */
+            title: string;
+            /** Message */
+            message: string;
+            /** Actions */
+            actions?: components["schemas"]["Action"][];
+            /** Sources */
+            sources?: components["schemas"]["Source"][];
+            /** Version */
+            version?: string | null;
+        };
+        /** Candidate */
+        Candidate: {
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /** Score */
+            score: number;
+            /** Class Id */
+            class_id?: string | null;
+        };
+        /** DiagnosisOut */
+        DiagnosisOut: {
+            recognition: components["schemas"]["RecognitionOut"];
+            advice: components["schemas"]["Advice"];
+            /** Receipt */
+            receipt: string;
+        };
+        /** RecognitionOut */
+        RecognitionOut: {
+            /** Image Id */
+            image_id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Model */
+            model: string;
+            /** Model Version */
+            model_version: string;
+            /** Scope */
+            scope: string;
+            /** Candidates */
+            candidates: components["schemas"]["Candidate"][];
+            /** Warning */
+            warning: string;
+            /** Created At */
+            created_at: string;
+        };
+        /** RetryIn */
+        RetryIn: {
+            /** Receipt */
+            receipt: string;
+        };
+        /** Source */
+        Source: {
+            /** Title */
+            title: string;
+            /**
+             * Url
+             * Format: uri
+             */
+            url: string;
+        };
         ErrorResponse: {
             error: {
                 code: string;
@@ -909,6 +1078,34 @@ export interface components {
         ConfidenceBand: "high" | "medium" | "low" | "unknown";
         /** @enum {string} */
         RoutingReasonCode: "evidence_sufficient" | "insufficient_evidence" | "out_of_scope" | "conflict" | "low_confidence" | "model_unavailable" | "policy_force_expert";
+        ProfileResponse: {
+            user_id: components["schemas"]["Id"];
+            username: string;
+            display_name: string;
+            role: components["schemas"]["Role"];
+            /** @description 脱敏手机号；旧账号尚未回填时可为空 */
+            phone_masked?: string | null;
+            phone_verified: boolean;
+        };
+        ProfilePatch: {
+            display_name: string;
+        };
+        PhoneCodeRequest: {
+            /** @description 中国内地手机号，可带+86前缀 */
+            phone: string;
+        };
+        PhoneCodeResponse: {
+            challenge_id: string;
+            /** @constant */
+            resend_after_seconds: 60;
+            /** @constant */
+            expires_in: 300;
+        };
+        PhoneLoginRequest: {
+            phone: string;
+            challenge_id: string;
+            code: string;
+        };
         LoginRequest: {
             username: string;
             password: string;
@@ -1715,6 +1912,139 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    diagnose_api_v1_diagnoses_post: {
+        parameters: {
+            query?: {
+                crop_id?: "huyou" | "xiangyou" | "citrus";
+                part?: "leaf" | "fruit" | "branch";
+                tree_age?: "adult" | "young" | "unknown";
+            };
+            header: {
+                "X-Image-ID": string;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisOut"];
+                };
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retry_advice_api_v1_diagnoses_advice_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Advice"];
+                };
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 认证、校验、服务容量或模型不可用错误 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     recognizeSingleImage: {
         parameters: {
             query?: never;
@@ -1867,6 +2197,125 @@ export interface operations {
                 };
             };
             503: components["responses"]["Unavailable"];
+        };
+    };
+    sendPhoneCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description 发送请求已受理，不返回验证码 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneCodeResponse"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    phoneLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description 登录成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            401: components["responses"]["AuthInvalid"];
+            /** @description 账号已停用 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 并发登录发生冲突，请重试 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前账号资料，手机号仅返回脱敏信息 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            401: components["responses"]["AuthInvalid"];
+        };
+    };
+    patchMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description 昵称已保存，用户标识和角色保持不变 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            401: components["responses"]["AuthInvalid"];
+            /** @description 昵称不合法或包含不可修改的字段 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     login: {

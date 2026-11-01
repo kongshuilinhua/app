@@ -241,4 +241,18 @@ class BackendTest {
         val withId = ApiException(401, "AUTH_INVALID", "消息", "019a0000-0000-7000-8000-0000000000cc")
         assertEquals("019a0000-0000-7000-8000-0000000000cc", withId.requestId)
     }
+
+    @Test fun oversizedImagesHaveReadableMessageWithoutHidingPixelLimit() = runBlocking {
+        for ((message, expected) in listOf(
+            "Request body exceeds gateway limit" to "图片超过服务允许的大小，请缩小图片或重新拍摄",
+            "图片像素过大，请使用不超过2400万像素的图片" to "图片像素过大，请使用不超过2400万像素的图片"
+        )) {
+            server.enqueue(json(413, """{"error":{"code":"PAYLOAD_TOO_LARGE","message":"$message"}}"""))
+            var caught: HttpException? = null
+            try { Backend(server.url("/").toString()).services().auth.me("Bearer t") }
+            catch (e: HttpException) { caught = e }
+            assertTrue(caught != null)
+            assertEquals(expected, ApiErrors.messageOf(caught!!))
+        }
+    }
 }

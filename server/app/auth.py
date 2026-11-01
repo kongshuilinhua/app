@@ -5,10 +5,11 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .common import (
     DomainError,
@@ -68,6 +69,32 @@ class MeResponse(BaseModel):
     username: str
     display_name: str
     role: str
+
+
+class ProfileResponse(MeResponse):
+    phone_masked: str | None = None
+    phone_verified: bool = False
+
+
+class ProfilePatch(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    display_name: str
+
+    @field_validator('display_name')
+    @classmethod
+    def nickname(cls, value):
+        value = value.strip()
+        if not 2 <= len(value) <= 18 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
+            raise ValueError('昵称须为2至18个字符，不能包含控制字符')
+        return value
+
+
+def _profile(store, user):
+    identity = store.find_phone_for_user(user['user_id'])
+    masked = identity.get('masked_phone') if identity else None
+    if not isinstance(masked, str) or not re.fullmatch(r'1[3-9][0-9]\*{4}[0-9]{4}', masked):
+        masked = None
+    return ProfileResponse(**public_user(user), phone_masked=masked, phone_verified=identity is not None)
 
 
 class CultivarOut(BaseModel):
@@ -161,6 +188,24 @@ def logout(request: Request, _user: dict = Depends(current_user)) -> Response:
 @router.get("/me", tags=["auth"], response_model=MeResponse, summary="当前账号")
 def me(user: dict = Depends(current_user)) -> MeResponse:
     return MeResponse(**user)
+
+
+@router.get('/me/profile', tags=['auth'], response_model=ProfileResponse, summary='当前用户个人资料')
+def get_profile(request: Request, user: dict = Depends(current_user)):
+    with request.app.state.storage.transaction(write=False) as store:
+        return _profile(store, user)
+
+
+@router.patch('/me/profile', tags=['auth'], response_model=ProfileResponse, summary='修改当前用户昵称')
+def patch_profile(payload: ProfilePatch, request: Request, viewer: dict = Depends(current_user)):
+    with request.app.state.storage.transaction() as store:
+        user = store.get_user(viewer['user_id'])
+        if user is None:
+            raise DomainError(401, 'AUTH_INVALID', '登录已失效，请重新登录')
+        if not user.get('is_active', False):
+            raise DomainError(403, 'ACCOUNT_DISABLED', '账号已停用')
+        user['display_name'] = payload.display_name
+        return _profile(store, user)
 
 
 @router.get("/config/bootstrap", tags=["config"], response_model=BootstrapResponse, summary="品种/类别与版本")
