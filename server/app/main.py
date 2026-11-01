@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import accounts, auth, exports, review, uploads, recognition, collection, diagnosis
+from . import accounts, auth, exports, review, uploads, recognition, collection, diagnosis, phone_auth
 from .common import (
     CONTRACT_VERSION,
     DomainError,
@@ -105,6 +105,7 @@ def create_app(
     limits: ServiceLimits | None = None,
     recognizer=None,
     detector=None,
+    sms_provider=None,
 ) -> FastAPI:
     """新建独立应用。
 
@@ -165,6 +166,7 @@ def create_app(
     application.state.detector = detector or recognition.LocalDetector(runtime_dir)
     application.state.recognition_work = UploadWork(1)
     application.state.diagnosis_key = diagnosis.signing_key(files_root)
+    application.state.sms_provider = sms_provider or phone_auth.AliyunSmsProvider()
     if isinstance(storage, MemoryStorage):
         # 仅供隔离测试直接安排内存夹具；所有业务模块都通过storage.transaction访问。
         application.state.store = storage.store
@@ -173,6 +175,7 @@ def create_app(
     register_exception_handlers(application)
 
     application.include_router(auth.router)
+    application.include_router(phone_auth.router)
     application.include_router(accounts.router)
     application.include_router(uploads.router)
     application.include_router(collection.router)

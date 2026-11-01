@@ -278,6 +278,86 @@ paths:
           $ref: "#/components/responses/Unavailable"
 
   # ---------------- 认证 ----------------
+  /auth/phone/code:
+    post:
+      tags: [auth]
+      operationId: sendPhoneCode
+      security: []
+      summary: 发送手机登录验证码
+      description: 每手机号60秒重发，验证码5分钟有效。发送有全局、IP和手机号配额。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhoneCodeRequest" }
+      responses:
+        "200":
+          description: 发送请求已受理，不返回验证码
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhoneCodeResponse" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /auth/phone/login:
+    post:
+      tags: [auth]
+      operationId: phoneLogin
+      security: []
+      summary: 手机验证码登录，首次验证后自动创建账号
+      description: 首次验证成功创建collector，再次登录使用同一用户ID。验证码一次性，最多5次尝试。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhoneLoginRequest" }
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401":
+          $ref: "#/components/responses/AuthInvalid"
+        "403":
+          description: 账号已停用
+        "409":
+          description: 并发登录发生冲突，请重试
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /me/profile:
+    get:
+      tags: [auth]
+      operationId: getMyProfile
+      summary: 当前用户个人资料
+      responses:
+        "200":
+          description: 当前账号资料，手机号仅返回脱敏信息
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileResponse" }
+        "401":
+          $ref: "#/components/responses/AuthInvalid"
+    patch:
+      tags: [auth]
+      operationId: patchMyProfile
+      summary: 修改当前用户昵称
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfilePatch" }
+      responses:
+        "200":
+          description: 昵称已保存，用户标识和角色保持不变
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileResponse" }
+        "401":
+          $ref: "#/components/responses/AuthInvalid"
+        "422":
+          description: 昵称不合法或包含不可修改的字段
   /auth/login:
     post:
       tags: [auth]
@@ -1835,6 +1915,43 @@ components:
       enum: [evidence_sufficient, insufficient_evidence, out_of_scope, conflict, low_confidence, model_unavailable, policy_force_expert]
 
     # ---------- 认证 ----------
+    ProfileResponse:
+      type: object
+      required: [user_id, username, display_name, role, phone_verified]
+      properties:
+        user_id: { $ref: "#/components/schemas/Id" }
+        username: { type: string }
+        display_name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        phone_masked: { type: [string, "null"], description: 脱敏手机号；旧账号尚未回填时可为空 }
+        phone_verified: { type: boolean }
+    ProfilePatch:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name: { type: string, minLength: 2, maxLength: 18 }
+    PhoneCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [phone]
+      properties:
+        phone: { type: string, maxLength: 16, description: 中国内地手机号，可带+86前缀 }
+    PhoneCodeResponse:
+      type: object
+      required: [challenge_id, resend_after_seconds, expires_in]
+      properties:
+        challenge_id: { type: string }
+        resend_after_seconds: { type: integer, const: 60 }
+        expires_in: { type: integer, const: 300 }
+    PhoneLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, challenge_id, code]
+      properties:
+        phone: { type: string, maxLength: 16 }
+        challenge_id: { type: string, minLength: 32, maxLength: 100 }
+        code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
     LoginRequest:
       type: object
       required: [username, password]

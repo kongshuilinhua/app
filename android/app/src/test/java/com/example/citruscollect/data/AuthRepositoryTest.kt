@@ -26,6 +26,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class FakeSessionStore : SessionStore {
     private val bootstrapCache = mutableMapOf<String, String>()
+    private val profileCache = mutableMapOf<String, String>()
+    override suspend fun loadProfileCache(key: String): String? = profileCache[key]
+    override suspend fun saveProfileCache(key: String, value: String) { profileCache[key] = value }
+
     override suspend fun loadBootstrapCache(key: String): String? = bootstrapCache[key]
     override suspend fun saveBootstrapCache(key: String, value: String) { bootstrapCache[key] = value }
     private val _token = MutableStateFlow<String?>(null)
@@ -69,6 +73,7 @@ class FakeSessionStore : SessionStore {
 
     override suspend fun clear() {
         bootstrapCache.clear()
+        profileCache.clear()
         access = null
         refresh = null
         _token.value = null
@@ -578,5 +583,87 @@ class AuthRepositoryTest {
         assertEquals(server.url("/").toString(), backend.baseUrl()) // 未切到新主机
         assertEquals("acc-old", session.accessToken()) // 旧令牌未与新主机错配
         assertEquals("ref-old", session.refreshToken())
+    }
+
+    @Test fun phoneLoginUsesCanonicalIdentityAndCodeSendDoesNotSwitchHost() = runBlocking {
+        seedSession()
+        other.enqueue(json(200, """{"challenge_id":"challenge","resend_after_seconds":60,"expires_in":300}"""))
+        val challenge = repository.sendPhoneCode(other.url("/").toString(), "13800000000")
+        assertEquals("challenge", challenge.challenge_id)
+        assertEquals(server.url("/").toString(), backend.baseUrl())
+        assertEquals("acc-old", session.accessToken())
+        assertEquals("/auth/phone/code", other.takeRequest().path)
+        other.enqueue(json(200, loginResponse("collector")))
+        repository.loginPhone(other.url("/").toString(), "13800000000", "challenge", "123456")
+        val request = other.takeRequest()
+        assertEquals("/auth/phone/login", request.path)
+        assertTrue(request.body.readUtf8().contains("\"phone\":\"13800000000\""))
+        assertEquals(other.url("/").toString(), backend.baseUrl())
+        assertEquals("c1", session.username.first())
+    }
+
+    @Test fun failedPhoneLoginKeepsOriginalSessionAndHost() = runBlocking {
+        seedSession()
+        other.enqueue(json(401, """{"error":{"code":"SMS_CODE_INVALID","message":"验证码无效"}}"""))
+        var failure: ApiException? = null
+        try { repository.loginPhone(other.url("/").toString(), "13800000000", "challenge", "000000") }
+        catch (e: ApiException) { failure = e }
+        assertTrue(failure != null)
+        assertEquals(server.url("/").toString(), backend.baseUrl())
+        assertEquals("acc-old", session.accessToken())
+    }
+
+    private fun profileJson(name: String) = """{"user_id":"user-1","username":"c1","display_name":"$name","role":"collector","phone_masked":"138****2468","phone_verified":true}"""
+
+    @Test fun nicknameUpdatePreservesOwnerAndCachesOnlyCurrentAccount() = runBlocking {
+        seedSession()
+        val owner = repository.currentOwnerKey()
+        server.enqueue(json(200, profileJson("原昵称")))
+        assertEquals("原昵称", repository.profile().display_name)
+        assertEquals("原昵称", repository.cachedProfile()?.display_name)
+        server.takeRequest()
+        server.enqueue(json(200, profileJson("新昵称")))
+        assertEquals("新昵称", repository.updateNickname(" 新昵称 ").display_name)
+        val patch = server.takeRequest()
+        assertEquals("PATCH", patch.method)
+        assertEquals("/me/profile", patch.path)
+        assertTrue(patch.body.readUtf8().contains("新昵称"))
+        assertEquals(owner, repository.currentOwnerKey())
+        assertEquals("新昵称", repository.cachedProfile()?.display_name)
+        other.enqueue(json(200, loginResponse("collector")))
+        repository.login(other.url("/").toString(), "c1", "password")
+        assertNull(repository.cachedProfile())
+    }
+
+    @Test fun failedNicknameSaveKeepsCachedProfileAndSession() = runBlocking {
+        seedSession()
+        server.enqueue(json(200, profileJson("原昵称"))); repository.profile()
+        server.enqueue(json(503, """{"error":{"code":"UNAVAILABLE","message":"暂时不可用"}}"""))
+        var failure: ApiException? = null
+        try { repository.updateNickname("新昵称") } catch (e: ApiException) { failure = e }
+        assertTrue(failure != null)
+        assertEquals("原昵称", repository.cachedProfile()?.display_name)
+        assertEquals("acc-old", session.accessToken())
+    }
+
+    @Test fun lateProfileResponseCannotOverwriteSwitchedAccount() = runBlocking {
+        seedSession()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = dispatcher {
+            entered.countDown()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            json(200, profileJson("旧账号昵称"))
+        }
+        val request = async(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { repository.profile() }
+        }
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        other.enqueue(json(200, loginResponse("collector")))
+        repository.login(other.url("/").toString(), "c1", "password")
+        release.countDown()
+        assertTrue(request.await().isFailure)
+        assertNull(repository.cachedProfile())
+        assertEquals(other.url("/").toString(), backend.baseUrl())
     }
 }

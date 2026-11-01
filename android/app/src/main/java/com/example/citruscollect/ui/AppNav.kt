@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -58,8 +62,9 @@ fun AppNav() {
 }
 
 private val TABS = listOf(
-    Triple("home", "⌂", "首页"), Triple("identify", "◎", "拍照识别"),
-    Triple("collection", "▤", "数据采集"), Triple("history", "▦", "我的记录")
+    Triple("home", Icons.Outlined.Home, "首页"), Triple("identify", Icons.Outlined.Search, "拍照识别"),
+    Triple("collection", Icons.Outlined.Create, "数据采集"), Triple("history", Icons.Outlined.List, "记录"),
+    Triple("mine", Icons.Outlined.Person, "我的")
 )
 
 @Composable
@@ -72,7 +77,7 @@ private fun MainNav() {
     val tabRoute = when {
         route?.startsWith("confirm") == true -> "collection"
         route in setOf("capture", "records", "batches") -> "collection"
-        route == "questions" -> "history"
+        route in setOf("questions", "about", "privacy") -> "mine"
         else -> route
     }
 
@@ -87,7 +92,7 @@ private fun MainNav() {
     Scaffold(
         containerColor = CitrusColors.Screen,
         bottomBar = {
-            if (route in setOf("home", "identify", "collection", "history")) {
+            if (route in setOf("home", "identify", "collection", "history", "mine")) {
                 Column(Modifier.background(CitrusColors.White).navigationBarsPadding()) {
                     HorizontalDivider(color = CitrusColors.Line)
                     Row(
@@ -106,8 +111,8 @@ private fun MainNav() {
                                         .padding(horizontal = 16.dp, vertical = 5.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(icon, fontSize = 16.sp,
-                                        color = if (active) CitrusColors.Green else Color(0xFF94A08F))
+                                    Icon(icon, contentDescription = null, modifier = Modifier.size(21.dp),
+                                        tint = if (active) CitrusColors.Green else Color(0xFF94A08F))
                                 }
                                 Text(label, fontSize = 10.sp,
                                     fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
@@ -144,9 +149,15 @@ private fun MainNav() {
                     onCollectionRecord = { nav.navigate("confirm/$it") })
             }
             composable("history") {
-                DiagnosisHistoryScreen(onOpen = { nav.navigate("diagnosis/$it") }, onIdentify = { openTab("identify") },
-                    onQuestions = { nav.navigate("questions") }, onLogout = { scope.launch { container.authRepository.logout() } })
+                DiagnosisHistoryScreen(onOpen = { nav.navigate("diagnosis/$it") }, onIdentify = { openTab("identify") })
             }
+            composable("mine") {
+                MyScreen(onQuestions = { nav.navigate("questions") }, onAbout = { nav.navigate("about") },
+                    onPrivacy = { nav.navigate("privacy") },
+                    onLogout = { container.appScope.launch { container.authRepository.logout() } })
+            }
+            composable("about") { CollectionSubpage(onBack = { nav.popBackStack() }) { AboutAppScreen(onPrivacy = { nav.navigate("privacy") }) } }
+            composable("privacy") { CollectionSubpage(onBack = { nav.popBackStack() }) { PrivacyInfoScreen() } }
             composable("capture") {
                 CollectionSubpage(onBack = { nav.popBackStack() }) { CaptureHomeScreen(
                     onStartCapture = { nav.navigate("shoot") },
@@ -159,7 +170,7 @@ private fun MainNav() {
                     onOpenRecord = { nav.navigate("confirm/$it") },
                     onCapture = { nav.navigate("shoot") },
                     onOpenBatches = { nav.navigate("batches") },
-                    onLogout = { scope.launch { container.authRepository.logout() } }
+                    onAccount = { openTab("mine") }
                 ) }
             }
             composable("questions") { CollectionSubpage(onBack = { nav.popBackStack() }) { QuestionScreen() } }

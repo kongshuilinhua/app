@@ -152,7 +152,7 @@ def test_legacy_v1_upgrade_preserves_accounts_and_old_tables(tmp_path):
         assert state.get_user(user["user_id"])["display_name"] == "迁移前已有账号"
         assert state.get_config()["taxonomy_version"] == 7 and state.get_config()["policy_version"] == 3
     with engine.connect() as connection:
-        assert connection.execute(select(versions.c.value)).scalar_one() == '3'
+        assert connection.execute(select(versions.c.value)).scalar_one() == '5'
         assert connection.execute(select(legacy['users'].c.record_key)).scalar_one() == user['user_id']
     assert 'payload' not in {column['name'] for column in inspect(engine).get_columns('users')}
     storage.close()

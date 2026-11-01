@@ -23,6 +23,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import java.util.Collections
+import com.example.citruscollect.BuildConfig
 import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +31,16 @@ import java.util.concurrent.TimeUnit
 
 @Serializable
 data class LoginRequest(val username: String, val password: String)
+
+@Serializable
+data class PhoneCodeRequest(val phone: String)
+
+@Serializable
+data class PhoneCodeResponse(val challenge_id: String, val resend_after_seconds: Int, val expires_in: Int)
+
+@Serializable
+data class PhoneLoginRequest(val phone: String, val challenge_id: String, val code: String)
+
 
 @Serializable
 data class AuthUser(
@@ -66,6 +77,19 @@ data class MeResponse(
     val display_name: String,
     val role: String
 )
+
+@Serializable
+data class ProfileResponse(
+    val user_id: String,
+    val username: String,
+    val display_name: String,
+    val role: String,
+    val phone_masked: String? = null,
+    val phone_verified: Boolean = false
+)
+
+@Serializable
+data class ProfilePatch(val display_name: String)
 
 @Serializable
 data class Cultivar(
@@ -222,6 +246,9 @@ object ApiErrors {
 
     fun messageOf(e: HttpException): String {
         val body = parse(e)
+        if (e.code() == 413 && (body?.message.isNullOrBlank() || body?.message == "Request body exceeds gateway limit")) {
+            return "图片超过服务允许的大小，请缩小图片或重新拍摄"
+        }
         return body?.message?.takeIf { it.isNotBlank() } ?: "请求失败（HTTP ${e.code()}）"
     }
 
@@ -237,6 +264,18 @@ object ApiErrors {
 // ---------------- Retrofit 服务 ----------------
 
 interface AuthService {
+    @GET("me/profile")
+    suspend fun profile(@Header("Authorization") authorization: String): ProfileResponse
+
+    @retrofit2.http.PATCH("me/profile")
+    suspend fun updateProfile(@Header("Authorization") authorization: String, @Body body: ProfilePatch): ProfileResponse
+
+    @POST("auth/phone/code")
+    suspend fun sendPhoneCode(@Body body: PhoneCodeRequest): PhoneCodeResponse
+
+    @POST("auth/phone/login")
+    suspend fun loginPhone(@Body body: PhoneLoginRequest): LoginResponse
+
     @POST("auth/login")
     suspend fun login(@Body body: LoginRequest): LoginResponse
 
@@ -331,11 +370,11 @@ class Backend(
     client: OkHttpClient? = null
 ) {
     companion object {
-        // 模拟器访问宿主机；`adb reverse tcp:18000 tcp:18000` 时也可填 127.0.0.1:18000。
-        const val DEFAULT_BASE_URL = "http://10.0.2.2:18000/api/v1/"
+        // 默认连接已部署的 HTTPS 服务；登录页仍可切换服务地址。
+        const val DEFAULT_BASE_URL = BuildConfig.API_BASE_URL
 
         // 与服务端约定一致的客户端标识；版本号跟随 app/build.gradle.kts 的 versionName。
-        const val CLIENT_VERSION = "android/0.1.0"
+        const val CLIENT_VERSION = "android/0.1.3"
     }
 
     data class Services(val auth: AuthService, val upload: UploadService, val config: BootstrapService,

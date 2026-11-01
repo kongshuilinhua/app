@@ -222,7 +222,7 @@ class SqlMetadataStorage:
                 ).first()
                 if row is None:
                     conn.execute(insert(self._schema_table).values(name="schema_version", value=SCHEMA_VERSION))
-                elif str(row[0]) not in {"1", "2", SCHEMA_VERSION}:
+                elif str(row[0]) not in {"1", "2", "3", "4", SCHEMA_VERSION}:
                     raise StorageError(
                         f"数据库 schema_version={row[0]} 与本版 {SCHEMA_VERSION} 不一致；请先手动迁移，不做隐式破坏性迁移"
                     )
@@ -244,7 +244,7 @@ class SqlMetadataStorage:
     def _migrate_collection_columns(self):
         # Add nullable columns only: retain every historical row and its original values.
         additions = {"samples": ("batch_id", "batch_snapshot", "latitude", "longitude", "location_accuracy_m"),
-                     "export_items": ("collection_metadata",)}
+                     "export_items": ("collection_metadata",), "phone_identities": ("masked_phone",)}
         with self._engine.begin() as conn:
             for name, columns in additions.items():
                 existing = {c["name"] for c in inspect(conn).get_columns(name)}
@@ -440,6 +440,21 @@ class _ObjectAccess:
 
     def list_questions(self, owner_id, page, page_size):
         return self._owned_page('questions', owner_id, page, page_size)
+
+    def get_phone_identity(self, phone_key):
+        return self._one('phone_identities', phone_key=phone_key)
+
+    def find_phone_for_user(self, user_id):
+        return self._one('phone_identities', user_id=user_id)
+
+    def add_phone_identity(self, record):
+        self._add('phone_identities', record)
+
+    def get_sms_state(self, key):
+        return self._one('sms_states', record_key=key)
+
+    def add_sms_state(self, record):
+        self._add('sms_states', record)
 
     def get_user(self, user_id):
         return self._one('users', user_id=user_id)

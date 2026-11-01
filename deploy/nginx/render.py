@@ -41,13 +41,17 @@ def application_server(frontend: Path, upstream: str, listen: str, name: str, tl
     # assets/index.html exists, even when a public URL resembles a storage key.
     routes = api_location("= /api", upstream)
     routes += api_location("= /api/v1/auth/login", upstream, login=True)
+    routes += api_location("= /api/v1/auth/phone/code", upstream, login=True)
+    routes += api_location("= /api/v1/auth/phone/login", upstream, login=True)
     routes += api_location('~ "^/api/v1/uploads/[0-9a-fA-F-]{36}/images/[0-9a-fA-F-]{36}$"', upstream, image=True)
+    # Binary image requests must share the backend 20 MiB bound; advice remains ordinary JSON.
+    routes += api_location('~ "^/api/v1/(recognitions|diagnoses)/?$"', upstream, image=True)
     routes += api_location("/api/", upstream)
     errors = ""
     for status, code, message in (
         (403, "GATEWAY_FORBIDDEN", "Access denied"),
         (404, "GATEWAY_NOT_FOUND", "Resource not found"),
-        (413, "PAYLOAD_TOO_LARGE", "Request body exceeds gateway limit"),
+        (413, "PAYLOAD_TOO_LARGE", "图片或请求内容过大，请缩小后重试"),
         (429, "RATE_LIMITED", "Too many requests; retry later"),
         (502, "GATEWAY_UNAVAILABLE", "Application is unavailable"),
         (504, "GATEWAY_TIMEOUT", "Application response timed out"),

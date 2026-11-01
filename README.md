@@ -105,3 +105,25 @@ Android模拟器登录服务地址为 `http://10.0.2.2:18080/api/v1/`，采集�
 后台先调用识别模型，再按类别、置信度及适用条件匹配经审核资料，返回通俗建议。App 没有知识库浏览或图谱入口。模型未配置时返回 503，不返回演示病名；资料为空、未审核、结果不确定或条件冲突时，不生成针对性方案。后台资料配置见 [server/config/README.md](server/config/README.md)，默认目录为空，需管理员补充并审核。接口为 `POST /api/v1/diagnoses` 和基于用户绑定签名凭据的 `POST /api/v1/diagnoses/advice`。
 
 识别不会自动创建训练样本。用户明确同意并选择开放采集批次后，才复制成独立待确认采集记录，模型结果不自动成为标签；旧批次、拍摄、标注、上传流程保留在数据采集入口。
+
+## 我的与个人资料
+
+Android 底部为首页、拍照识别、数据采集、记录、我的。个人中心支持读取真实昵称、修改昵称、脱敏手机号、专家咨询、版本信息、隐私与数据说明及退出确认。昵称限制为2至18个字符，只更新当前用户的显示名，不修改登录名、用户ID、角色或照片归属。
+
+个人资料接口为 `GET/PATCH /api/v1/me/profile`。App缓存按服务器及账号隔离；保存失败保留编辑内容，退出仅清理会话和缓存，不删除本地照片或记录。昵称更新后的迟到请求不会覆盖其他账号缓存。
+
+schema 4→5 仅为phone_identities新增可空masked_phone字段。旧手机号记录在下一次成功短信登录时回填脱敏值；回填前界面显示已验证状态，不猜测或展示完整手机号。服务端配置与身份摘要密钥保持不变。升级前备份数据库，旧版代码回滚需与数据库版本配套。
+
+模拟器个人中心真实链路测试入口为 `MyProfileLiveTest`，需显式提供baseUrl及测试采集账号；测试覆盖昵称保存与取消、咨询/关于/隐私入口、退出及服务端会话撤销、重新登录后记录保留，并恢复原昵称。不发送短信。
+
+## 独立本地调试（暂不部署或输出交付包）
+
+本地调试 App 使用独立包名 `com.example.citruscollect.local`，与现有 App 的账号缓存、照片和 Room 数据分开。仅 debug 构建在传入 `-PcitrusLocalDebug=true` 时连接 `http://10.0.2.2:18081/api/v1/`；release 始终保持原 HTTPS 配置。
+
+1. 单独终端运行 `./tools/run-local-debug-server.ps1`。API 只监听127.0.0.1:18080，数据位于`.runtime/local-debug`，明确关闭真实短信发送。
+2. 使用本机 Nginx 运行 `./tools/run-gateway.ps1 -NginxExe <nginx.exe路径> -Port 18081 -ApiPort 18080 -RuntimeDir .runtime/local-debug/gateway`。本地 App 通过网关而非直连 API，覆盖请求体限制等行为。
+3. 运行 `./android/gradlew.bat -p android :app:installDebug -PcitrusLocalDebug=true`，在模拟器打开“柚见·本地调试”。使用本地采集账号collector1、示例密码12345678。
+
+批次照片拍摄后的draft显示“待确认”；缺少照片或品种/部位/类别值时才显示“待完善”及具体缺项。unknown“不确定”是有效选择，症状、备注、GPS等可选项不作为缺项。确认保存后显示“待上传”，不会自动把未确认照片放入上传队列。
+
+图片上传、单张识别与独立诊断网关上限均为20MiB；诊断建议等普通JSON请求仍为1MiB。图片像素上限仍由API独立校验。配置真实本地Nginx路径到TEST_NGINX_EXE后，可运行`server/tests/test_nginx_image_limits.py`验证限额与路由，不会连接云端或发送短信。
